@@ -1,5 +1,5 @@
 import { resolve, isAbsolute, normalize } from 'path';
-import { createReadStream } from 'fs';
+import { createReadStream, createWriteStream } from 'fs';
 import { homedir } from 'os';
 import readline from 'readline';
 import fs from 'fs/promises';
@@ -162,6 +162,26 @@ rl.on('line', async (line) => {
     } catch (error) {
       handleOperationError(error);
     }
+  } else if (trimmedLine.startsWith('add ')) {
+    const newFileName = trimmedLine.slice('add '.length).trim();
+
+    try {
+      await fs.writeFile(newFileName, '');
+
+      console.log(`File '${newFileName}' created successfully.`);
+    } catch (error) {
+      handleOperationError(error);
+    }
+  } else if (trimmedLine.startsWith('rn ')) {
+    const [oldFilePath, newFileName] = trimmedLine.slice('rn '.length).trim().split(' ');
+
+    try {
+      await fs.rename(oldFilePath, newFileName);
+
+      console.log(`File '${oldFilePath}' renamed to '${newFileName}' successfully.`);
+    } catch (error) {
+      handleOperationError(error);
+    }
   } else {
     if (trimmedLine.startsWith('cd ')) {
       const requestedDir = trimmedLine.slice('cd '.length).trim();
@@ -173,6 +193,25 @@ rl.on('line', async (line) => {
 
         process.chdir(targetDir);
         console.log(`Changed current working directory to: ${targetDir}`);
+      } catch (error) {
+        handleOperationError(error);
+      }
+    } else if (trimmedLine.startsWith('cp ')) {
+      const [sourceFilePath, destinationPath] = trimmedLine.slice('cp '.length).trim().split(' ');
+
+      try {
+        const sourceStream = createReadStream(sourceFilePath);
+        const destinationStream = createWriteStream(destinationPath);
+
+        sourceStream.pipe(destinationStream);
+
+        sourceStream.on('end', () => {
+          console.log(`File '${sourceFilePath}' copied to '${destinationPath}' successfully.`);
+        });
+
+        sourceStream.on('error', (error) => {
+          handleOperationError(error);
+        });
       } catch (error) {
         handleOperationError(error);
       }
