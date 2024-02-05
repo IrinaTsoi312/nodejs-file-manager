@@ -1,9 +1,14 @@
 import { resolve, isAbsolute, normalize } from 'path';
+import { createReadStream } from 'fs';
 import { homedir } from 'os';
 import readline from 'readline';
 import fs from 'fs/promises';
+import path from 'path';
 
 import handleOperationError from './handleOperationError.js';
+
+
+const workingDir = process.cwd();
 
 const printCurrentWorkingDirectory = () => {
   console.log(`You are currently in ${process.cwd()}`);
@@ -12,13 +17,16 @@ const printCurrentWorkingDirectory = () => {
 const withTemporaryDirectoryChange = async (targetDir, callback) => {
   const originalDir = process.cwd();
   try {
-    const absolutePath = resolve(targetDir);
+    const absolutePath = path.resolve(targetDir);
+    const targetDrive = path.parse(absolutePath).root;
 
-    if (targetDir.split(':')[0] !== originalDir.split(':')[0]) {
-      console.log(`Changing drive to ${targetDir.split(':')[0]}`);
-      process.chdir(targetDir.split(':')[0] + ':\\');
+    if (targetDrive.toLowerCase() !== originalDir.slice(0, 1).toLowerCase()) {
+      console.log(`Changing drive to ${targetDrive}`);
+      process.chdir(targetDrive);
     }
+
     process.chdir(absolutePath);
+
     await callback();
   } catch (error) {
     handleOperationError(error);
@@ -26,8 +34,8 @@ const withTemporaryDirectoryChange = async (targetDir, callback) => {
     process.chdir(originalDir);
   }
 };
-
 process.chdir(homedir());
+process.chdir(workingDir);
 
 const username = process.env.npm_config_username;
 
@@ -108,15 +116,11 @@ rl.on('line', async (line) => {
     }
   } else if (trimmedLine === 'ls') {
     try {
-      const currentModuleDir = new URL('.', import.meta.url).pathname;
-      const projectDir = resolve(currentModuleDir, '../..');
-
-      const currentWorkingDir = process.cwd();
-      const targetDir = resolve(currentWorkingDir, projectDir, 'src', 'files');
+      const projectDir = resolve(workingDir, '../..');
+      const targetDir = resolve(projectDir, 'src', 'files');
 
       await withTemporaryDirectoryChange(targetDir, async () => {
         const contents = await fs.readdir('./');
-
         const sortedContents = contents.sort(async (a, b) => {
           const isDirectoryA = (await fs.stat(resolve(targetDir, a))).isDirectory();
           const isDirectoryB = (await fs.stat(resolve(targetDir, b))).isDirectory();
@@ -129,13 +133,31 @@ rl.on('line', async (line) => {
             return a.localeCompare(b, undefined, { sensitivity: 'base' });
           }
         });
-
         console.log('Type\tName');
-
         for (const item of sortedContents) {
           const isDirectory = (await fs.stat(resolve(targetDir, item))).isDirectory();
           console.log(`${isDirectory ? 'Folder' : 'File'}\t${item}`);
         }
+      });
+    } catch (error) {
+      handleOperationError(error);
+    }
+  } else if (trimmedLine.startsWith('cat ')) {
+    const filePath = trimmedLine.slice('cat '.length).trim();
+
+    try {
+      const fileStream = createReadStream(filePath);
+
+      fileStream.on('data', (chunk) => {
+        process.stdout.write(chunk);
+      });
+
+      fileStream.on('end', () => {
+        console.log('\nFile reading completed.');
+      });
+
+      fileStream.on('error', (error) => {
+        handleOperationError(error);
       });
     } catch (error) {
       handleOperationError(error);
