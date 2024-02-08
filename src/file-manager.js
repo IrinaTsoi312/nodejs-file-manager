@@ -1,11 +1,13 @@
 import { resolve, isAbsolute, normalize } from 'path';
-import { createReadStream, createWriteStream } from 'fs';
+import { createReadStream, createWriteStream, promises as fsPromises, readdir } from 'fs';
 import { homedir } from 'os';
 import readline from 'readline';
 import fs from 'fs/promises';
 import path from 'path';
-
-import handleOperationError from './handleOperationError.js';
+import os from 'os';
+import { createHash } from 'crypto';
+import handleError from './handleError.js';
+import { createBrotliCompress, createBrotliDecompress } from 'zlib';
 
 
 const workingDir = process.cwd();
@@ -29,7 +31,7 @@ const withTemporaryDirectoryChange = async (targetDir, callback) => {
 
     await callback();
   } catch (error) {
-    handleOperationError(error);
+    handleError(error);
   } finally {
     process.chdir(originalDir);
   }
@@ -98,7 +100,7 @@ rl.on('line', async (line) => {
         console.log('Invalid directory. Cannot navigate above the root directory.');
       }
     } catch (error) {
-      handleOperationError(error);
+      handleError(error);
     }
   } else if (trimmedLine === 'up') {
     try {
@@ -112,7 +114,7 @@ rl.on('line', async (line) => {
         console.log('Already in the root directory. Cannot move up.');
       }
     } catch (error) {
-      handleOperationError(error);
+      handleError(error);
     }
   } else if (trimmedLine === 'ls') {
     try {
@@ -140,7 +142,7 @@ rl.on('line', async (line) => {
         }
       });
     } catch (error) {
-      handleOperationError(error);
+      handleError(error);
     }
   } else if (trimmedLine.startsWith('cat ')) {
     const filePath = trimmedLine.slice('cat '.length).trim();
@@ -157,10 +159,10 @@ rl.on('line', async (line) => {
       });
 
       fileStream.on('error', (error) => {
-        handleOperationError(error);
+        handleError(error);
       });
     } catch (error) {
-      handleOperationError(error);
+      handleError(error);
     }
   } else if (trimmedLine.startsWith('add ')) {
     const newFileName = trimmedLine.slice('add '.length).trim();
@@ -170,7 +172,7 @@ rl.on('line', async (line) => {
 
       console.log(`File '${newFileName}' created successfully.`);
     } catch (error) {
-      handleOperationError(error);
+      handleError(error);
     }
   } else if (trimmedLine.startsWith('rn ')) {
     const [oldFilePath, newFileName] = trimmedLine.slice('rn '.length).trim().split(' ');
@@ -180,7 +182,160 @@ rl.on('line', async (line) => {
 
       console.log(`File '${oldFilePath}' renamed to '${newFileName}' successfully.`);
     } catch (error) {
-      handleOperationError(error);
+      handleError(error);
+    }
+  } else if (trimmedLine.startsWith('mv ')) {
+    const [sourceFilePath, destinationPath] = trimmedLine.slice('mv '.length).trim().split(' ');
+
+    try {
+      const sourceStream = createReadStream(sourceFilePath);
+      const destinationStream = createWriteStream(destinationPath);
+
+      sourceStream.pipe(destinationStream);
+
+      sourceStream.on('end', async () => {
+        console.log(`File '${sourceFilePath}' moved to '${destinationPath}' successfully.`);
+
+        try {
+          await fs.unlink(sourceFilePath);
+          console.log(`Source file '${sourceFilePath}' deleted successfully.`);
+        } catch (error) {
+          handleError(error);
+        }
+      });
+
+      sourceStream.on('error', (error) => {
+        handleError(error);
+      });
+    } catch (error) {
+      handleError(error);
+    }
+  } else if (trimmedLine.startsWith('rm ')) {
+    const filePathToRemove = trimmedLine.slice('rm '.length).trim();
+
+    try {
+      const normalizedPath = filePathToRemove.replace(/\//g, path.sep);
+
+      await fs.unlink(normalizedPath);
+      console.log(`File '${normalizedPath}' deleted successfully.`);
+    } catch (error) {
+      handleError(error);
+    }
+  } else if (trimmedLine === 'os --EOL') {
+    const { EOL } = os;
+    console.log(`Default End-Of-Line (EOL) on this system is: '${EOL}'`);
+  } else if (trimmedLine === 'os --cpus') {
+    const cpus = os.cpus();
+    console.log(`Overall amount of CPUs: ${cpus.length}`);
+
+    cpus.forEach((cpu, index) => {
+      console.log(`CPU ${index + 1}:`);
+      console.log(`  Model: ${cpu.model}`);
+      console.log(`  Clock rate: ${cpu.speed / 1000} GHz`);
+    });
+  } else if (trimmedLine === 'os --homedir') {
+    const homeDirectory = os.homedir();
+    console.log(`Home directory: ${homeDirectory}`);
+  } else if (trimmedLine === 'os --username') {
+    const systemUsername = os.userInfo().username;
+    console.log(`System username: ${systemUsername}`);
+  } else if (trimmedLine === 'os --architecture') {
+    const cpuArchitecture = os.arch();
+    console.log(`Node.js binary compiled for CPU architecture: ${cpuArchitecture}`);
+  } else if (trimmedLine.startsWith('hash ')) {
+    const filePathToHash = trimmedLine.slice('hash '.length).trim();
+
+    try {
+      const normalizedPath = filePathToHash.replace(/\//g, path.sep);
+
+      const hash = createHash('sha256');
+      const fileStream = createReadStream(normalizedPath);
+
+      fileStream.on('data', (chunk) => {
+        hash.update(chunk);
+      });
+
+      fileStream.on('end', () => {
+        const fileHash = hash.digest('hex');
+        console.log(`Hash for file '${normalizedPath}': ${fileHash}`);
+      });
+
+      fileStream.on('error', (error) => {
+        handleError(error);
+      });
+    } catch (error) {
+      handleError(error);
+    }
+  } else if (trimmedLine.startsWith('compress ')) {
+    const [sourcePath, destinationPath] = trimmedLine.slice('compress '.length).trim().split(' ');
+
+    try {
+      const normalizedSourcePath = sourcePath.replace(/\//g, path.sep);
+      const isSourceDirectory = (await fsPromises.lstat(normalizedSourcePath)).isDirectory();
+
+      if (isSourceDirectory) {
+        const files = await readdir(normalizedSourcePath);
+
+        for (const file of files) {
+          const filePath = path.join(normalizedSourcePath, file);
+          const readStream = createReadStream(filePath);
+          const destinationFile = path.join(destinationPath, `${file}.br`);
+          const writeStream = createWriteStream(destinationFile);
+          const brotliCompress = createBrotliCompress();
+
+          readStream.pipe(brotliCompress).pipe(writeStream);
+          writeStream.on('finish', () => {
+            console.log(`File ${filePath} compressed successfully to: ${destinationFile}`);
+          });
+          writeStream.on('error', (error) => {
+            handleError(error);
+          });
+        }
+        console.log(`Directory compressed successfully to: ${destinationPath}`);
+      } else {
+        const readStream = createReadStream(normalizedSourcePath);
+        const isDestinationDirectory = destinationPath.endsWith(path.sep);
+        const destinationFile = isDestinationDirectory ? `${destinationPath}${path.basename(normalizedSourcePath)}.br` : destinationPath;
+
+        const writeStream = createWriteStream(destinationFile);
+
+        const brotliCompress = createBrotliCompress();
+
+        readStream.pipe(brotliCompress).pipe(writeStream);
+
+        writeStream.on('finish', () => {
+          console.log(`File compressed successfully to: ${destinationFile}`);
+        });
+
+        writeStream.on('error', (error) => {
+          handleError(error);
+        });
+      }
+    } catch (error) {
+      handleError(error);
+    }
+  } else if (trimmedLine.startsWith('decompress ')) {
+    const [filePathToDecompress, destinationPath] = trimmedLine.slice('decompress '.length).trim().split(' ');
+
+    try {
+      const normalizedPath = filePathToDecompress.replace(/\//g, path.sep);
+
+      const readStream = createReadStream(normalizedPath);
+      const writeStream = createWriteStream(destinationPath);
+
+      const brotliDecompress = createBrotliDecompress();
+
+      readStream.pipe(brotliDecompress).pipe(writeStream);
+
+      writeStream.on('finish', () => {
+        console.log(`File decompressed successfully to: ${destinationPath}`);
+      });
+
+      writeStream.on('error', (error) => {
+        handleError(error);
+      });
+    } catch (error) {
+      handleError(error);
     }
   } else {
     if (trimmedLine.startsWith('cd ')) {
@@ -194,7 +349,7 @@ rl.on('line', async (line) => {
         process.chdir(targetDir);
         console.log(`Changed current working directory to: ${targetDir}`);
       } catch (error) {
-        handleOperationError(error);
+        handleError(error);
       }
     } else if (trimmedLine.startsWith('cp ')) {
       const [sourceFilePath, destinationPath] = trimmedLine.slice('cp '.length).trim().split(' ');
@@ -210,10 +365,10 @@ rl.on('line', async (line) => {
         });
 
         sourceStream.on('error', (error) => {
-          handleOperationError(error);
+          handleError(error);
         });
       } catch (error) {
-        handleOperationError(error);
+        handleError(error);
       }
     } else {
       console.log('Unknown command. Please enter a valid command.');
