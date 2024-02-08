@@ -13,7 +13,6 @@ import addNewFile from './add.js';
 import compressFile from './compress.js';
 import decompressFile from './decompress.js';
 
-const workingDir = process.cwd();
 process.chdir(homedir());
 
 const username = process.env.npm_config_username;
@@ -21,7 +20,6 @@ const username = process.env.npm_config_username;
 console.log(`Welcome to the File Manager, ${username}!`);
 
 printCurrentWorkingDirectory();
-process.chdir(workingDir);
 
 const rl = readline.createInterface({
   input: process.stdin,
@@ -83,7 +81,7 @@ rl.on('line', async (line) => {
   } else if (trimmedLine === 'up') {
     goToUpperDir();
   } else if (trimmedLine === 'ls') {
-    printListOfFiles(workingDir);
+    printListOfFiles();
   } else if (trimmedLine.startsWith('cat ')) {
     const filePath = trimmedLine.slice('cat '.length).trim();
 

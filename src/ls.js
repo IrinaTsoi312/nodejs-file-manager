@@ -1,36 +1,27 @@
-import withTemporaryDirectoryChange from './withTemporaryDirChange.js';
-import fs from 'fs/promises';
-import { resolve } from 'path';
+import { promises as fsPromises } from 'fs';
+import printCurrentWorkingDirectory from './printWorkingDirChange.js';
 
-const printListOfFiles = async (workingDir) => {
+const printListOfFiles = async () => {
+  const currentDirectoryPath = process.cwd();
+
   try {
-    process.chdir(workingDir);
-    const projectDir = resolve(workingDir, '../..');
-    const targetDir = resolve(projectDir, 'src', 'files');
+    const fileNames = await fsPromises.readdir(currentDirectoryPath);
+    fileNames.sort();
 
-    await withTemporaryDirectoryChange(targetDir, async () => {
-      const contents = await fs.readdir('./');
-      const sortedContents = contents.sort(async (a, b) => {
-        const isDirectoryA = (await fs.stat(resolve(targetDir, a))).isDirectory();
-        const isDirectoryB = (await fs.stat(resolve(targetDir, b))).isDirectory();
+    console.log('index | name | type');
 
-        if (isDirectoryA && !isDirectoryB) {
-          return -1;
-        } else if (!isDirectoryA && isDirectoryB) {
-          return 1;
-        } else {
-          return a.localeCompare(b, undefined, { sensitivity: 'base' });
-        }
-      });
-      console.log('Type\tName');
-      for (const item of sortedContents) {
-        const isDirectory = (await fs.stat(resolve(targetDir, item))).isDirectory();
-        console.log(`${isDirectory ? 'Folder' : 'File'}\t${item}`);
-      }
-    });
+    for (let index = 0; index < fileNames.length; index++) {
+      const fileName = fileNames[index];
+      const fileStats = await fsPromises.stat(`${currentDirectoryPath}/${fileName}`);
+      const fileType = fileStats.isDirectory() ? '[Folder]' : '[File]';
+      console.log(`${index + 1} | ${fileName} | ${fileType}`);
+    }
   } catch (error) {
-    console.error(`Operation failed: ${error}`);
+    console.error(`FS operation failed: ${error.message}`);
+    throw error;
   }
+
+  printCurrentWorkingDirectory();
 };
 
 export default printListOfFiles;
