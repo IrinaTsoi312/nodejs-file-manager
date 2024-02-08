@@ -1,5 +1,4 @@
 import { resolve, isAbsolute, normalize } from 'path';
-import { createReadStream, createWriteStream, promises as fsPromises, readdir } from 'fs';
 import { homedir } from 'os';
 import readline from 'readline';
 import fs from 'fs/promises';
@@ -7,43 +6,22 @@ import path from 'path';
 import os from 'os';
 import { createHash } from 'crypto';
 import handleError from './handleError.js';
-import { createBrotliCompress, createBrotliDecompress } from 'zlib';
-
+import printCurrentWorkingDirectory from './printWorkingDirChange.js';
+import goToUpperDir from './up.js';
+import printListOfFiles from './ls.js';
+import addNewFile from './add.js';
+import compressFile from './compress.js';
+import decompressFile from './decompress.js';
 
 const workingDir = process.cwd();
-
-const printCurrentWorkingDirectory = () => {
-  console.log(`You are currently in ${process.cwd()}`);
-};
-
-const withTemporaryDirectoryChange = async (targetDir, callback) => {
-  const originalDir = process.cwd();
-  try {
-    const absolutePath = path.resolve(targetDir);
-    const targetDrive = path.parse(absolutePath).root;
-
-    if (targetDrive.toLowerCase() !== originalDir.slice(0, 1).toLowerCase()) {
-      console.log(`Changing drive to ${targetDrive}`);
-      process.chdir(targetDrive);
-    }
-
-    process.chdir(absolutePath);
-
-    await callback();
-  } catch (error) {
-    handleError(error);
-  } finally {
-    process.chdir(originalDir);
-  }
-};
 process.chdir(homedir());
-process.chdir(workingDir);
 
 const username = process.env.npm_config_username;
 
 console.log(`Welcome to the File Manager, ${username}!`);
 
 printCurrentWorkingDirectory();
+process.chdir(workingDir);
 
 const rl = readline.createInterface({
   input: process.stdin,
@@ -103,47 +81,9 @@ rl.on('line', async (line) => {
       handleError(error);
     }
   } else if (trimmedLine === 'up') {
-    try {
-      const currentDir = normalize(process.cwd());
-      const rootDir = normalize(process.cwd().split(':')[0] + ':\\');
-
-      if (currentDir !== rootDir) {
-        process.chdir('..');
-        console.log(`Moved up one level. Current working directory is now: ${process.cwd()}`);
-      } else {
-        console.log('Already in the root directory. Cannot move up.');
-      }
-    } catch (error) {
-      handleError(error);
-    }
+    goToUpperDir();
   } else if (trimmedLine === 'ls') {
-    try {
-      const projectDir = resolve(workingDir, '../..');
-      const targetDir = resolve(projectDir, 'src', 'files');
-
-      await withTemporaryDirectoryChange(targetDir, async () => {
-        const contents = await fs.readdir('./');
-        const sortedContents = contents.sort(async (a, b) => {
-          const isDirectoryA = (await fs.stat(resolve(targetDir, a))).isDirectory();
-          const isDirectoryB = (await fs.stat(resolve(targetDir, b))).isDirectory();
-
-          if (isDirectoryA && !isDirectoryB) {
-            return -1;
-          } else if (!isDirectoryA && isDirectoryB) {
-            return 1;
-          } else {
-            return a.localeCompare(b, undefined, { sensitivity: 'base' });
-          }
-        });
-        console.log('Type\tName');
-        for (const item of sortedContents) {
-          const isDirectory = (await fs.stat(resolve(targetDir, item))).isDirectory();
-          console.log(`${isDirectory ? 'Folder' : 'File'}\t${item}`);
-        }
-      });
-    } catch (error) {
-      handleError(error);
-    }
+    printListOfFiles(workingDir);
   } else if (trimmedLine.startsWith('cat ')) {
     const filePath = trimmedLine.slice('cat '.length).trim();
 
@@ -165,15 +105,7 @@ rl.on('line', async (line) => {
       handleError(error);
     }
   } else if (trimmedLine.startsWith('add ')) {
-    const newFileName = trimmedLine.slice('add '.length).trim();
-
-    try {
-      await fs.writeFile(newFileName, '');
-
-      console.log(`File '${newFileName}' created successfully.`);
-    } catch (error) {
-      handleError(error);
-    }
+    addNewFile(trimmedLine);
   } else if (trimmedLine.startsWith('rn ')) {
     const [oldFilePath, newFileName] = trimmedLine.slice('rn '.length).trim().split(' ');
 
@@ -267,76 +199,9 @@ rl.on('line', async (line) => {
       handleError(error);
     }
   } else if (trimmedLine.startsWith('compress ')) {
-    const [sourcePath, destinationPath] = trimmedLine.slice('compress '.length).trim().split(' ');
-
-    try {
-      const normalizedSourcePath = sourcePath.replace(/\//g, path.sep);
-      const isSourceDirectory = (await fsPromises.lstat(normalizedSourcePath)).isDirectory();
-
-      if (isSourceDirectory) {
-        const files = await readdir(normalizedSourcePath);
-
-        for (const file of files) {
-          const filePath = path.join(normalizedSourcePath, file);
-          const readStream = createReadStream(filePath);
-          const destinationFile = path.join(destinationPath, `${file}.br`);
-          const writeStream = createWriteStream(destinationFile);
-          const brotliCompress = createBrotliCompress();
-
-          readStream.pipe(brotliCompress).pipe(writeStream);
-          writeStream.on('finish', () => {
-            console.log(`File ${filePath} compressed successfully to: ${destinationFile}`);
-          });
-          writeStream.on('error', (error) => {
-            handleError(error);
-          });
-        }
-        console.log(`Directory compressed successfully to: ${destinationPath}`);
-      } else {
-        const readStream = createReadStream(normalizedSourcePath);
-        const isDestinationDirectory = destinationPath.endsWith(path.sep);
-        const destinationFile = isDestinationDirectory ? `${destinationPath}${path.basename(normalizedSourcePath)}.br` : destinationPath;
-
-        const writeStream = createWriteStream(destinationFile);
-
-        const brotliCompress = createBrotliCompress();
-
-        readStream.pipe(brotliCompress).pipe(writeStream);
-
-        writeStream.on('finish', () => {
-          console.log(`File compressed successfully to: ${destinationFile}`);
-        });
-
-        writeStream.on('error', (error) => {
-          handleError(error);
-        });
-      }
-    } catch (error) {
-      handleError(error);
-    }
+    compressFile(trimmedLine);
   } else if (trimmedLine.startsWith('decompress ')) {
-    const [filePathToDecompress, destinationPath] = trimmedLine.slice('decompress '.length).trim().split(' ');
-
-    try {
-      const normalizedPath = filePathToDecompress.replace(/\//g, path.sep);
-
-      const readStream = createReadStream(normalizedPath);
-      const writeStream = createWriteStream(destinationPath);
-
-      const brotliDecompress = createBrotliDecompress();
-
-      readStream.pipe(brotliDecompress).pipe(writeStream);
-
-      writeStream.on('finish', () => {
-        console.log(`File decompressed successfully to: ${destinationPath}`);
-      });
-
-      writeStream.on('error', (error) => {
-        handleError(error);
-      });
-    } catch (error) {
-      handleError(error);
-    }
+    decompressFile(trimmedLine);
   } else {
     if (trimmedLine.startsWith('cd ')) {
       const requestedDir = trimmedLine.slice('cd '.length).trim();

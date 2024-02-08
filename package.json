@@ -4,7 +4,7 @@
   "description": "This a solution for RS School's task: File-manager (https://github.com/AlreadyBored/nodejs-assignments/blob/main/assignments/file-manager/assignment.md)",
   "type": "module",
   "imports": {
-    "./handleOperationError.js": "./handleOperationError.js"
+    "./handleError.js": "./handleError.js"
   },
   "scripts": {
     "start": "node src/file-manager.js"

@@ -1,5 +1,5 @@
 const handleError = (error) => {
-  console.error(`Operation failed: ${error.message}`);
+  console.error(`Operation failed: ${error}`);
 };
 
 export default handleError;
