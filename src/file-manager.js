@@ -1,6 +1,7 @@
 import { resolve, isAbsolute, normalize } from 'path';
 import { homedir } from 'os';
 import readline from 'readline';
+import { promises as fsPromises, createReadStream } from 'fs';
 import fs from 'fs/promises';
 import path from 'path';
 import os from 'os';
