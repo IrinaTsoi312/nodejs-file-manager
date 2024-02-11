@@ -1,0 +1,27 @@
+{
+  "name": "nodejs-file-manager",
+  "version": "1.0.0",
+  "description": "This a solution for RS School's task: File-manager (https://github.com/AlreadyBored/nodejs-assignments/blob/main/assignments/file-manager/assignment.md)",
+  "type": "module",
+  "imports": {
+    "./handleError.js": "./handleError.js"
+  },
+  "scripts": {
+    "start": "node src/file-manager.js"
+  },
+  "repository": {
+    "type": "git",
+    "url": "https://github.com/IrinaTsoi312/nodejs-file-manager.git"
+  },
+  "keywords": [
+    "nodejs",
+    "irinatsoi",
+    "RS School"
+  ],
+  "author": "Irina Tsoi",
+  "license": "ISC",
+  "bugs": {
+    "url": "https://github.com/IrinaTsoi312/nodejs-file-manager/issues"
+  },
+  "homepage": "https://github.com/IrinaTsoi312/nodejs-file-manager#readme"
+}
